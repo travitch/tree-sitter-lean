@@ -4746,6 +4746,10 @@
             "named": false
           },
           {
+            "type": "∈ˢ",
+            "named": false
+          },
+          {
             "type": "∉",
             "named": false
           },
@@ -4895,6 +4899,10 @@
           },
           {
             "type": "⊆",
+            "named": false
+          },
+          {
+            "type": "⊆ˢ",
             "named": false
           },
           {
@@ -25910,28 +25918,8 @@
         "required": true,
         "types": [
           {
-            "type": "ˣ",
-            "named": false
-          },
-          {
-            "type": "ᵀ",
-            "named": false
-          },
-          {
-            "type": "ᵐᵒᵖ",
-            "named": false
-          },
-          {
-            "type": "ᵒᵈ",
-            "named": false
-          },
-          {
-            "type": "ᵒᵖ",
-            "named": false
-          },
-          {
-            "type": "ᶜ",
-            "named": false
+            "type": "modifier_op",
+            "named": true
           },
           {
             "type": "†",
@@ -38794,6 +38782,10 @@
     "named": true
   },
   {
+    "type": "modifier_op",
+    "named": true
+  },
+  {
     "type": "moduleTk",
     "named": true
   },
@@ -39066,10 +39058,6 @@
     "named": false
   },
   {
-    "type": "ˣ",
-    "named": false
-  },
-  {
     "type": "Π",
     "named": false
   },
@@ -39083,26 +39071,6 @@
   },
   {
     "type": "λ",
-    "named": false
-  },
-  {
-    "type": "ᵀ",
-    "named": false
-  },
-  {
-    "type": "ᵐᵒᵖ",
-    "named": false
-  },
-  {
-    "type": "ᵒᵈ",
-    "named": false
-  },
-  {
-    "type": "ᵒᵖ",
-    "named": false
-  },
-  {
-    "type": "ᶜ",
     "named": false
   },
   {
@@ -39286,6 +39254,10 @@
     "named": false
   },
   {
+    "type": "∈ˢ",
+    "named": false
+  },
+  {
     "type": "∉",
     "named": false
   },
@@ -39294,11 +39266,19 @@
     "named": false
   },
   {
+    "type": "∏'",
+    "named": false
+  },
+  {
     "type": "∐",
     "named": false
   },
   {
     "type": "∑",
+    "named": false
+  },
+  {
+    "type": "∑'",
     "named": false
   },
   {
@@ -39455,6 +39435,10 @@
   },
   {
     "type": "⊆",
+    "named": false
+  },
+  {
+    "type": "⊆ˢ",
     "named": false
   },
   {

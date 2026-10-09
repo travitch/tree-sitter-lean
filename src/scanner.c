@@ -42,6 +42,12 @@ enum TokenType {
 #define ID_BEGIN_ESCAPE 0x00ab // «
 #define ID_END_ESCAPE   0x00bb // »
 
+#define GEQ             0x2265 // ≥
+#define INFINITY_SIGN   0x221e // ∞
+#define NAT             0x2115 // ℕ
+#define RAT             0x211a // ℚ
+#define REAL            0x211d // ℝ
+
 static inline bool is_alpha_ascii(int32_t c) {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
@@ -77,6 +83,39 @@ static bool is_id_rest(int32_t c) {
       || is_digit_ascii(c)
       || c == '_' || c == '\'' || c == '!' || c == '?'
       || is_letter_like(c) || is_subscript_alnum(c);
+}
+
+/*
+ * Compound letterlike notation: a letterlike character followed by
+ * characters `isIdRest` rejects — `ℕ+` (PNat), `ℝ≥0` (NNReal),
+ * `ℝ≥0∞` (ENNReal), `ℚ≥0` (NNRat), `ℕ∞` (ENat).
+ *
+ * Lean lexes these from its token table, preferring the longest match
+ * over the identifier (`ℕ`) that prefixes them. The equivalent grammar
+ * literal cannot win here: this scanner runs ahead of the internal
+ * lexer and would already have handed back the bare identifier, so a
+ * `'ℕ+'` token in grammar.js would never be consulted. Recognizing the
+ * suffix here keeps the notation one leaf, the way Lean has it.
+ *
+ * Entries are NUL-terminated and matched as a trie walk, so `ℝ≥0∞`
+ * beats its own `ℝ≥0` prefix. Only exact whole-token entries match:
+ * there is deliberately no "letterlike followed by `+`" rule, so
+ * `α+β` and `ℕ ≥ 0` keep lexing as operators.
+ */
+#define NOTATION_MAX 6  /* longest entry, plus its NUL */
+
+static const int32_t COMPOUND_NOTATIONS[][NOTATION_MAX] = {
+  {NAT,  '+', 0},
+  {NAT,  INFINITY_SIGN, 0},
+  {REAL, GEQ, '0', 0},
+  {REAL, GEQ, '0', INFINITY_SIGN, 0},
+  {RAT,  GEQ, '0', 0},
+};
+
+/* The characters that can follow the leading letterlike one. Checked
+   before the walk so no other identifier pays for this. */
+static inline bool is_notation_continue(int32_t c) {
+  return c == '+' || c == GEQ || c == INFINITY_SIGN;
 }
 
 /*
@@ -167,6 +206,50 @@ static bool scan_identifier_continue(TSLexer *lexer, bool seen_unusual) {
   return true;
 }
 
+/*
+ * Walk `COMPOUND_NOTATIONS` for an entry starting with `lead`, which has
+ * already been consumed AND marked as the token end.
+ *
+ * That pre-marking is what makes a failed walk free: a dead end (`ℝ≥`
+ * with no `0` behind it) leaves lookahead moved on but the marked end
+ * untouched, so the caller still emits the bare `ℝ`. Each complete
+ * entry re-marks, giving longest-match. Returns whether anything
+ * matched; the caller emits SCANNED_IDENT either way.
+ */
+static bool scan_notation_suffix(TSLexer *lexer, int32_t lead) {
+  const unsigned count =
+    sizeof COMPOUND_NOTATIONS / sizeof *COMPOUND_NOTATIONS;
+  int32_t seen[NOTATION_MAX];
+  unsigned len = 1;
+  bool matched = false;
+
+  seen[0] = lead;
+  while (len + 1 < NOTATION_MAX && lexer->lookahead != 0) {
+    seen[len] = lexer->lookahead;
+
+    /* Does any entry agree with `seen[0..len]`, and does any entry end
+       exactly there? */
+    bool extends = false, complete = false;
+    for (unsigned i = 0; i < count; i++) {
+      const int32_t *entry = COMPOUND_NOTATIONS[i];
+      unsigned k = 0;
+      while (k <= len && entry[k] != 0 && entry[k] == seen[k]) k++;
+      if (k != len + 1) continue;
+      extends = true;
+      if (entry[len + 1] == 0) complete = true;
+    }
+    if (!extends) break;
+
+    advance(lexer);
+    len++;
+    if (complete) {
+      lexer->mark_end(lexer);
+      matched = true;
+    }
+  }
+  return matched;
+}
+
 static bool scan_identifier(TSLexer *lexer) {
   int32_t c = lexer->lookahead;
   if (c == ID_BEGIN_ESCAPE) {
@@ -190,6 +273,18 @@ static bool scan_identifier(TSLexer *lexer) {
   if (!is_id_first(c)) return false;
   bool seen_unusual = (c >= 0x80);
   advance(lexer);
+
+  /* `ℕ+`, `ℝ≥0∞`, … — divert only for a non-ASCII lead followed
+     immediately by `+`/`≥`/`∞`. None of those are `isIdRest` or `.`, so
+     the identifier and dotted-name paths below lose nothing; ASCII
+     leads are untouched, leaving `N+` to lex as `N` `+`. */
+  if (c >= 0x80 && is_notation_continue(lexer->lookahead)) {
+    lexer->mark_end(lexer);
+    scan_notation_suffix(lexer, c);
+    lexer->result_symbol = SCANNED_IDENT;
+    return true;
+  }
+
   return scan_identifier_continue(lexer, seen_unusual);
 }
 

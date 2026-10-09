@@ -1285,11 +1285,39 @@ export default grammar({
        these as separate tokens after the term, not as part of the
        identifier (the modifier-letter unicode chars aren't in
        `isIdRest`). */
+    /* `Mᵒᵖ`, `sᶜ`, `Mˣ`, `Mᵃᵒᵖ`, `Mᵁ`, … — postfix notation spelled as a
+       run of Unicode modifier letters. Mathlib declares these by the
+       dozen (`postfix:max "ᵒᵖ"`, `"ᵐᵒᵖ"`, `"ᵒᵈ"`, `"ᶜ"`, `"ˣ"`, `"ᵀ"`, …)
+       and keeps adding more, so match the character class instead of
+       enumerating: one terminal rather than one per notation.
+
+       Three caveats, all deliberate:
+
+       1. The run is greedy, which is what makes `Mᵃᵒᵖ` the single token
+          Mathlib registers. The cost is that `Mᵒᵖᵒᵖ` — two `ᵒᵖ` to
+          Lean, whose token table knows where to split — folds into one
+          op here. No token table, no split.
+       2. Ranges stop short of U+1D62–U+1D6A. Those are subscripts, not
+          superscripts, and `isIdRest` already claims them (`-ᵥ`,
+          `::ᵣ`, `≃ᵤ`); taking them would break those operators.
+       3. Operators carrying a modifier as part of an infix token
+          (`×ˢ`, `∈ˢ`, `∀ᵐ`) stay enumerated below. They win by longest
+          match at their own first character, and this rule could not
+          cover them regardless — it is postfix on a term, not infix.
+
+       `⁻¹`, `⁺`, `†` and `✝` are not modifier letters, so they stay. */
+    modifier_op: _ => token(
+      /* U+02B0–U+02FF spacing modifiers (ˣ ˢ ʰ), U+1D2C–U+1D61
+         superscript capitals and smalls (ᵀ ᵁ ᵒ ᵖ ᵐ ᵈ ᵃ), and
+         U+1D9B–U+1DBF phonetic extensions supplement (ᶜ ᶠ). */
+      /[ʰ-˿ᴬ-ᵡᶛ-ᶿ]+/,
+    ),
+
     postfix_op: $ => prec.left(PREC.proj, seq(
       field('term', $._op_term),
       field('op', choice(
-        'ᵒᵖ', 'ᵐᵒᵖ', 'ᵒᵈ', '⁻¹', 'ᵀ', '†',
-        'ᶜ', 'ˣ', '✝',
+        $.modifier_op,
+        '⁻¹', '†', '✝',
         '⁺',  /* positive part (`a⁺`) */
       )),
     )),
@@ -1368,6 +1396,9 @@ export default grammar({
           '<', '≤', '<=',
           '>', '≥', '>=',
           '∈', '∉', '⊆', '⊂', '⊇', '⊃', '⊑', '⊒',
+          /* Set-coerced membership/inclusion (`s ∈ˢ t`). The modifier
+             letter is part of the token, as in `×ˢ` below. */
+          '∈ˢ', '⊆ˢ',
           '≡', '≢', '~', '≃', '≅', '≈', '≉',
           '≍', '≃ₘ', '≃ᵤ',  /* heq, measureable-equiv, uniform-equiv */
           '∣', '∤',  /* divides, not-divides */
@@ -1548,6 +1579,9 @@ export default grammar({
     big_op_binder: $ => prec.right(seq(
       choice(
         '⨆', '⨅', '∑', '∏',
+        /* `∑'`/`∏'` — `tsum`/`tprod`. The prime is part of the token,
+           as in `Σ'` above; `∑` alone would leave it stranded. */
+        "∑'", "∏'",
         '⋃', '⋂', '⋀', '⋁', '⨁', '⨂', '∐',
         '∀ᵐ', '∃ᵐ',
         '∫', '∫⁻', '⨍',

@@ -682,3 +682,212 @@ Symmetric difference operator
     term: (binary_op
       lhs: (identifier)
       rhs: (identifier))))
+
+==============
+Compound letterlike notation
+==============
+
+def a : ℕ+ := 1
+def b : ℕ∞ := 1
+def c : ℝ≥0 := 1
+def d : ℚ≥0 := 1
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      body: (num_lit)))
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      body: (num_lit)))
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      body: (num_lit)))
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      body: (num_lit))))
+
+==============
+Compound letterlike notation prefers the longest match
+==============
+
+def b : ℝ≥0∞ := 1
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (identifier)
+      body: (num_lit))))
+
+==============
+Letterlike identifier with no compound notation keeps the operator
+==============
+
+def e (ε : ℝ) := ε+ε
+def f := ℝ≥x
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))))
+  (declaration
+    (def
+      name: (identifier)
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (identifier)))))
+
+==============
+Set-coerced membership and inclusion
+==============
+
+#check s ∈ˢ t
+#check s ⊆ˢ t
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier)))
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))
+
+==============
+Primed big operators
+==============
+
+#check ∑' i, f i
+#check ∏' i, f i
+
+---
+
+(module
+  (check
+    term: (big_op_binder
+      (binders
+        (identifier))
+      body: (app
+        fn: (identifier)
+        arg: (identifier))))
+  (check
+    term: (big_op_binder
+      (binders
+        (identifier))
+      body: (app
+        fn: (identifier)
+        arg: (identifier)))))
+
+==============
+Modifier-letter postfix notation
+==============
+
+#check Aᵒᵖ
+#check Aᵐᵒᵖ
+#check sᶜ
+#check Mˣ
+#check Mᵀ
+
+---
+
+(module
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op)))
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op)))
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op)))
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op)))
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op))))
+
+==============
+Modifier-letter postfix notation outside any enumerated list
+==============
+
+#check Aᵃᵒᵖ
+#check Gᵁ
+
+---
+
+(module
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op)))
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op))))
+
+==============
+Repeated modifier notation folds into one greedy run
+==============
+
+#check Mᵒᵖᵒᵖ
+
+---
+
+(module
+  (check
+    term: (postfix_op
+      term: (identifier)
+      op: (modifier_op))))
+
+==============
+Infix operators keep their attached modifier
+==============
+
+#check sᶜ ×ˢ tᶜ
+#check p -ᵥ q
+
+---
+
+(module
+  (check
+    term: (binary_op
+      lhs: (postfix_op
+        term: (identifier)
+        op: (modifier_op))
+      rhs: (postfix_op
+        term: (identifier)
+        op: (modifier_op))))
+  (check
+    term: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))))

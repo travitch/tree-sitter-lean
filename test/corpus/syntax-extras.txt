@@ -1111,7 +1111,8 @@ Postfix operator opposite
 (module
   (check
     term: (postfix_op
-      term: (identifier))))
+      term: (identifier)
+      op: (modifier_op))))
 
 ==============
 Postfix operator inverse
