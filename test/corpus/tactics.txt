@@ -138,6 +138,91 @@ example : True := by show True; trivial
         inline: (identifier)))))
 
 ==============
+Parenthesized tactic sequence
+==============
+
+example : True := by (trivial; trivial)
+
+---
+
+(module
+  (declaration
+    (example
+      type: (true_const)
+      body: (by
+        inline: (paren
+          (identifier)
+          (identifier))))))
+
+==============
+Parenthesized tactic sequence with a trailing semicolon
+==============
+
+example : True := by (trivial;)
+
+---
+
+(module
+  (declaration
+    (example
+      type: (true_const)
+      body: (by
+        inline: (paren
+          (identifier))))))
+
+==============
+Parenthesized tactic sequence under a goal combinator
+==============
+
+example (n : Nat) : n = n := by cases n <;> (skip; rfl)
+
+---
+
+(module
+  (declaration
+    (example
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      body: (by
+        inline: (binary_op
+          lhs: (induction
+            target: (identifier))
+          rhs: (paren
+            (identifier)
+            (identifier)))))))
+
+==============
+Parenthesized do sequence stays one do_block
+==============
+
+def main : IO Unit := do
+  (do IO.println "a"; IO.println "b")
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (do_block
+        stmt: (paren
+          (do_block
+            inline: (app
+              fn: (identifier)
+              arg: (str_lit))
+            inline: (app
+              fn: (identifier)
+              arg: (str_lit))))))))
+
+==============
 Simp star
 ==============
 

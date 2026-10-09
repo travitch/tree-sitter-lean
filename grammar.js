@@ -1119,11 +1119,27 @@ export default grammar({
            operator inside parens, treated as a function value. */
         field('section', choice('↑', '↓', '↥')),
         /* Regular parenthesized term, optionally type-ascribed, with
-           an optional tuple tail. */
+           an optional tuple tail — or a `;`-separated sequence.
+           `(tac₁; tac₂)` is Lean's parenthesized tactic sequence
+           (`by (intro h; exact h)`, `cases n <;> (skip; rfl)`), and a
+           trailing `;` is permitted (`by (trivial;)`). Comma and
+           semicolon tails are mutually exclusive, matching Lean: a
+           tuple is never `;`-separated.
+
+           This makes `paren` accept `;` in every context, including
+           do-element position where Lean rejects it (`do (a; b)` is an
+           error there; the valid spellings are `do (do a; b)` and
+           `do { a; b }`). Over-accepting is the same tradeoff the
+           grammar already takes by not splitting the tactic, term, and
+           do tiers — keeping the sequence inside `paren` costs no LR
+           conflict, whereas a separate parenthesized-sequence rule
+           would need a GLR conflict on the shared `'(' _term` prefix. */
         seq(
           $._term,
-          optional($._type_spec),
-          repeat(seq(',', $._term)),
+          choice(
+            seq(optional($._type_spec), repeat(seq(',', $._term))),
+            repeat1(seq(';', optional($._term))),
+          ),
         ),
       )),
       ')',
