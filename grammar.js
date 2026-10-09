@@ -113,6 +113,7 @@ export default grammar({
       $.eval,
       $.print,
       $.reduce,
+      $.hash_cmd,
       $.namespace,
       $.section,
       $.public_section,
@@ -416,6 +417,39 @@ export default grammar({
     eval:   $ => seq('#eval',   field('term', $._term)),
     print:  $ => seq(choice('#print', '#print_axioms'),   field('term', $._term)),
     reduce: $ => seq('#reduce', field('term', $._term)),
+
+    /* Any other `#`-prefixed command. Lean's `#`-command namespace is
+       open: `#guard_msgs`, `#guard`, `#check_simp` and `#test` ship
+       with core or Mathlib, Verso adds `#doc`, and `syntax … : command`
+       lets any library mint its own (`#derive_prefixed_toString`).
+       Enumerating them is a losing game — `#guard_msgs` alone outnumbers
+       `#eval` in lean4's own source — so accept the shape instead.
+
+       The head is one token so it cannot be confused with the unary `#`
+       operator or the `#[` array literal; `#check` and friends above
+       still win by string-over-regex specificity and keep their named
+       nodes. Three optional parts cover what the commands actually take:
+       `(opt := v)` configuration, a term argument, and the `in` suffix
+       that makes the command a modifier on the command below it
+       (`#guard_msgs in #eval e`). */
+    hash_cmd: $ => prec.right(seq(
+      field('name', $.hash_cmd_name),
+      repeat($._hash_cmd_config),
+      optional(field('term', $._term)),
+      optional(seq('in', field('body', $._command))),
+    )),
+
+    hash_cmd_name: _ => token(seq('#', /[A-Za-z_][A-Za-z0-9_'!?]*/)),
+
+    /* Outranks `paren`, which would otherwise also accept
+       `(ident := term)` as a parenthesized term. */
+    _hash_cmd_config: $ => prec(1, seq(
+      '(',
+      field('option', $.identifier),
+      ':=',
+      field('value', $._term),
+      ')',
+    )),
 
     /* `namespace`, `section`, and `end` are top-level commands rather
        than nested rules. Files in lean4 + Mathlib routinely leave

@@ -109,3 +109,61 @@ public meta import all Foo
     (meta)
     (all)
     name: (identifier)))
+
+==============
+Generic hash command
+==============
+
+#guard_msgs
+
+---
+
+(module
+  (hash_cmd
+    name: (hash_cmd_name)))
+
+==============
+Generic hash command with term
+==============
+
+#guard foo bar
+
+---
+
+(module
+  (hash_cmd
+    name: (hash_cmd_name)
+    term: (app
+      fn: (identifier)
+      arg: (identifier))))
+
+==============
+Generic hash command with configuration
+==============
+
+#guard_msgs (whitespace := lax)
+
+---
+
+(module
+  (hash_cmd
+    name: (hash_cmd_name)
+    option: (identifier)
+    value: (identifier)))
+
+==============
+Generic hash command modifying the command below it
+==============
+
+#guard_msgs in
+#eval 1 + 2
+
+---
+
+(module
+  (hash_cmd
+    name: (hash_cmd_name)
+    body: (eval
+      term: (binary_op
+        lhs: (num_lit)
+        rhs: (num_lit)))))

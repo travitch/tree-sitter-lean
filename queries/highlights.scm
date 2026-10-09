@@ -158,6 +158,9 @@
   "#reduce"
 ] @keyword.directive
 
+; Any other `#`-prefixed command (`#guard_msgs`, `#test`, `#doc`, …).
+(hash_cmd_name) @keyword.directive
+
 [
   "fun"
   "λ"
