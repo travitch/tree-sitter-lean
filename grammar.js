@@ -1520,10 +1520,13 @@ export default grammar({
        Inline binders are not modeled — write `let f := fun x => …`
        instead. The `←`/`<-` form is monadic bind for do-blocks. */
     let: $ => prec.right(seq(
-      /* `letI` is Mathlib's "let instance" variant; `obtain` and
-         `set` are tactic-language siblings for pattern-binding from
-         a result. */
-      choice('let', 'letI', 'obtain', 'set'),
+      /* `letI` is Mathlib's "let instance" variant; `obtain` is a
+         tactic-language sibling for pattern-binding from a result.
+         Mathlib's `set x := e with h` tactic deliberately is *not*
+         here: `word` keyword extraction would then stop `set` from
+         ever lexing as an identifier, and it is far more commonly the
+         state-monad function (`set (s + 1)` in a `do` block). */
+      choice('let', 'letI', 'obtain'),
       optional(choice('mut', 'rec')),
       field('name', choice(
         $._binder_ident,
