@@ -19,6 +19,7 @@
   (tactic_focus)
   (tactic_alt)
   (calc)
+  (decreasing_by)
   (do_block)
   (anon_ctor)
   (list_lit)

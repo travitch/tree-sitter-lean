@@ -408,3 +408,213 @@ Interactive commands
   (eval term: (identifier))
   (print term: (identifier))
   (reduce term: (identifier)))
+
+==============
+Termination hints after a definition body
+==============
+
+def f (n : Nat) : Nat :=
+  if n = 0 then 0 else f (n - 1)
+termination_by n
+decreasing_by omega
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (identifier)
+      body: (if_then_else
+        cond: (binary_op
+          lhs: (identifier)
+          rhs: (num_lit))
+        then: (num_lit)
+        else: (app
+          fn: (identifier)
+          arg: (paren
+            (binary_op
+              lhs: (identifier)
+              rhs: (num_lit)))))
+      (termination_by
+        measure: (identifier))
+      (decreasing_by
+        (tactic
+          name: (identifier))))))
+
+==============
+Termination hints after equations
+==============
+
+def g : Nat → Nat
+  | 0 => 0
+  | n + 1 => g n
+termination_by structural n => n
+decreasing_by
+  · simp_wf
+  · omega
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      (match_alt
+        pattern: (num_lit)
+        body: (num_lit))
+      (match_alt
+        pattern: (binary_op
+          lhs: (identifier)
+          rhs: (num_lit))
+        body: (app
+          fn: (identifier)
+          arg: (identifier)))
+      (termination_by
+        binders: (identifier)
+        measure: (identifier))
+      (decreasing_by
+        (tactic_focus
+          (tactic
+            name: (identifier)))
+        (tactic_focus
+          (tactic
+            name: (identifier)))))))
+
+==============
+Termination hints in a where block
+==============
+
+def k := go 0
+where
+  go (i : Nat) : Nat :=
+    if i < 3 then go (i + 1) else i
+  termination_by 3 - i
+  decreasing_by simp_wf; omega
+  other := 1
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      body: (app
+        fn: (identifier)
+        arg: (num_lit))
+      (where_decls
+        (where_aux_def
+          name: (identifier)
+          (binders
+            (explicit_binder
+              name: (identifier)
+              type: (identifier)))
+          type: (identifier)
+          body: (if_then_else
+            cond: (binary_op
+              lhs: (identifier)
+              rhs: (num_lit))
+            then: (app
+              fn: (identifier)
+              arg: (paren
+                (binary_op
+                  lhs: (identifier)
+                  rhs: (num_lit))))
+            else: (identifier)))
+        (termination_by
+          measure: (binary_op
+            lhs: (num_lit)
+            rhs: (identifier)))
+        (decreasing_by
+          (tactic
+            name: (identifier))
+          (tactic
+            name: (identifier)))
+        (where_aux_def
+          name: (identifier)
+          body: (num_lit))))))
+
+==============
+Termination hint ending a let rec proof
+==============
+
+theorem t : P := by
+  let rec go (i : Nat) : Q i := by
+    simp
+    termination_by n - i
+  exact go 0
+
+---
+
+(module
+  (declaration
+    (theorem
+      name: (identifier)
+      type: (identifier)
+      body: (by
+        (tactic
+          (app
+            fn: (app
+              fn: (identifier)
+              arg: (identifier))
+            arg: (paren
+              (identifier)
+              type: (identifier)))
+          (app
+            fn: (identifier)
+            arg: (identifier))
+          (by
+            (tactic
+              name: (identifier))
+            (termination_by
+              measure: (binary_op
+                lhs: (identifier)
+                rhs: (identifier)))))
+        (tactic
+          name: (identifier)
+          (app
+            fn: (identifier)
+            arg: (num_lit)))))))
+
+==============
+Fixpoint and suggested termination hints
+==============
+
+def p (x : Nat) : Option Nat := p (x + 1)
+partial_fixpoint
+
+def q := q
+termination_by?
+
+---
+
+(module
+  (declaration
+    (def
+      name: (identifier)
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (app
+        fn: (identifier)
+        arg: (paren
+          (binary_op
+            lhs: (identifier)
+            rhs: (num_lit))))
+      (partial_fixpoint)))
+  (declaration
+    (def
+      name: (identifier)
+      body: (identifier)
+      (termination_by))))

@@ -161,6 +161,18 @@
   "where"
 ] @keyword
 
+; Termination hints trailing a recursive definition.
+[
+  "termination_by"
+  "termination_by?"
+  "structural"
+  "decreasing_by"
+  "partial_fixpoint"
+  "inductive_fixpoint"
+  "coinductive_fixpoint"
+  "monotonicity"
+] @keyword
+
 [
   "noncomputable"
   "partial"

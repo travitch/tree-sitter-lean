@@ -780,12 +780,68 @@ export default grammar({
     _decl_val: $ => choice(
       seq(
         field('body', seq(':=', choice($._term, $.calc))),
+        optional($._termination_suffix),
         optional($.where_decls),
       ),
-      seq(repeat1($.match_alt), optional($.where_decls)),
+      seq(
+        repeat1($.match_alt),
+        optional($._termination_suffix),
+        optional($.where_decls),
+      ),
       seq($.where_struct, optional($.where_decls)),
     ),
     _type_spec: $ => field('type', seq(':', $._term)),
+
+    /* Termination hints trailing a recursive definition's body, in
+       Lean's order: a measure or fixpoint hint, then the
+       `decreasing_by` proof.
+
+         def f : Nat → Nat
+           | 0 => 0
+           | n + 1 => f n
+         termination_by n => n
+         decreasing_by omega
+
+       They also follow `let rec` values and `where` helpers, sometimes
+       on a line of their own inside a tactic or `where` block; those
+       blocks accept them as items (see `_tactic`, `where_decls`). */
+    _termination_suffix: $ => prec.right(choice(
+      seq(
+        choice($.termination_by, $.partial_fixpoint),
+        optional($.decreasing_by),
+      ),
+      $.decreasing_by,
+    )),
+
+    /* `termination_by e`, `termination_by structural x`, or
+       `termination_by x y => e`, naming the arguments the measure
+       refers to (those after the colon, which have no names in the
+       signature). `termination_by?` asks Lean to suggest one.
+
+       The names are parsed as a term (`x y` reads as an application):
+       a separate identifier list conflicts with the measure term and
+       doubles the parser's state count. */
+    termination_by: $ => prec.right(choice(
+      'termination_by?',
+      seq(
+        'termination_by',
+        optional('structural'),
+        choice(
+          field('measure', $._term),
+          seq(field('binders', $._term), '=>', field('measure', $._term)),
+        ),
+      ),
+    )),
+
+    /* `partial_fixpoint`, and the `inductive_fixpoint` /
+       `coinductive_fixpoint` predicate forms, each with an optional
+       `monotonicity` proof. */
+    partial_fixpoint: $ => prec.right(seq(
+      choice('partial_fixpoint', 'inductive_fixpoint', 'coinductive_fixpoint'),
+      optional(seq('monotonicity', field('proof', $._term))),
+    )),
+
+    decreasing_by: $ => seq('decreasing_by', $._tactic_seq),
 
     /* `where f := v g := w …` body of a `def name : T where …` —
        declares a value of a structure/instance type by field. The
@@ -824,10 +880,10 @@ export default grammar({
     where_decls: $ => seq(
       'where',
       choice(
-        $.where_aux_def,
+        seq($.where_aux_def, optional($._termination_suffix)),
         seq(
           $._indent,
-          sep1($.where_aux_def, $._newline),
+          sep1(choice($.where_aux_def, $._termination_suffix), $._newline),
           $._dedent,
         ),
       ),
@@ -1735,6 +1791,16 @@ export default grammar({
       $.tactic_paren,
       $.tactic_combinator,
       $.calc,
+      /* The hints of a `let rec` whose value is a `by` block land on
+         that block's last line(s):
+
+           let rec go (i : Nat) : P i := by
+             simp
+             termination_by n - i
+
+         Lean attaches them to the `let rec`; here they are an item of
+         the block. */
+      $._termination_suffix,
     ),
 
     /* The head is usually an identifier (`simp`, `exact?`, `norm_num`,

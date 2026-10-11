@@ -15,6 +15,7 @@
   (tactic_focus)
   (tactic_alt)
   (calc)
+  (decreasing_by)
   (do_block)
   (match)
   (block_comment)
