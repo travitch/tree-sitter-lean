@@ -11,9 +11,9 @@ example : Nat := by exact 0
     (example
       type: (identifier)
       body: (by
-        inline: (app
-          fn: (identifier)
-          arg: (num_lit))))))
+        (tactic
+          name: (identifier)
+          (num_lit))))))
 
 ==============
 Tactic block
@@ -29,9 +29,9 @@ example : Nat := by
     (example
       type: (identifier)
       body: (by
-        stmt: (app
-          fn: (identifier)
-          arg: (num_lit))))))
+        (tactic
+          name: (identifier)
+          (num_lit))))))
 
 ==============
 Multiple tactics
@@ -48,10 +48,11 @@ example : True := by
     (example
       type: (true_const)
       body: (by
-        stmt: (identifier)
-        stmt: (app
-          fn: (identifier)
-          arg: (identifier))))))
+        (tactic
+          name: (identifier))
+        (tactic
+          name: (identifier)
+          (identifier))))))
 
 ==============
 Do block braceless
@@ -133,9 +134,10 @@ example : True := by show True; trivial
     (example
       type: (true_const)
       body: (by
-        inline: (show
-          type: (true_const))
-        inline: (identifier)))))
+        (tactic
+          (true_const))
+        (tactic
+          name: (identifier))))))
 
 ==============
 Parenthesized tactic sequence
@@ -150,9 +152,11 @@ example : True := by (trivial; trivial)
     (example
       type: (true_const)
       body: (by
-        inline: (paren
-          (identifier)
-          (identifier))))))
+        (tactic_paren
+          (tactic
+            name: (identifier))
+          (tactic
+            name: (identifier)))))))
 
 ==============
 Parenthesized tactic sequence with a trailing semicolon
@@ -167,8 +171,9 @@ example : True := by (trivial;)
     (example
       type: (true_const)
       body: (by
-        inline: (paren
-          (identifier))))))
+        (tactic_paren
+          (tactic
+            name: (identifier)))))))
 
 ==============
 Parenthesized tactic sequence under a goal combinator
@@ -189,12 +194,15 @@ example (n : Nat) : n = n := by cases n <;> (skip; rfl)
         lhs: (identifier)
         rhs: (identifier))
       body: (by
-        inline: (binary_op
-          lhs: (induction
-            target: (identifier))
-          rhs: (paren
-            (identifier)
-            (identifier)))))))
+        (tactic_combinator
+          lhs: (tactic
+            name: (identifier)
+            (identifier))
+          rhs: (tactic_paren
+            (tactic
+              name: (identifier))
+            (tactic
+              name: (identifier))))))))
 
 ==============
 Parenthesized do sequence stays one do_block
@@ -235,8 +243,452 @@ example : True := by simp [*, foo]
     (example
       type: (true_const)
       body: (by
-        inline: (app
-          fn: (identifier)
-          arg: (list_lit
+        (tactic
+          name: (identifier)
+          (list_lit
             (star)
             (identifier)))))))
+
+==============
+Focused tactic blocks
+==============
+
+example : P := by
+  constructor
+  · intro h
+    exact h
+  · exact foo
+      bar
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          name: (identifier))
+        (tactic_focus
+          (tactic
+            name: (identifier)
+            (identifier))
+          (tactic
+            name: (identifier)
+            (identifier)))
+        (tactic_focus
+          (tactic
+            name: (identifier)
+            (app
+              fn: (identifier)
+              arg: (identifier))))))))
+
+==============
+Focus block ending in a nested by block
+==============
+
+example : P := by
+  · have h : Q := by
+      simp
+    exact h
+  rfl
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic_focus
+          (tactic
+            (identifier)
+            (identifier)
+            (by
+              (tactic
+                name: (identifier))))
+          (tactic
+            name: (identifier)
+            (identifier)))
+        (tactic
+          name: (identifier))))))
+
+==============
+Nested by block followed by a tactic
+==============
+
+example : True := by
+  have h : True := by
+    trivial
+  exact h
+
+---
+
+(module
+  (declaration
+    (example
+      type: (true_const)
+      body: (by
+        (tactic
+          (identifier)
+          (true_const)
+          (by
+            (tactic
+              name: (identifier))))
+        (tactic
+          name: (identifier)
+          (identifier))))))
+
+==============
+Tactic alternatives on separate lines
+==============
+
+example (n : Nat) : P n := by
+  induction n with
+  | zero => simp
+  | succ n ih =>
+    simp [ih]
+    omega
+  done
+
+---
+
+(module
+  (declaration
+    (example
+      (binders
+        (explicit_binder
+          name: (identifier)
+          type: (identifier)))
+      type: (app
+        fn: (identifier)
+        arg: (identifier))
+      body: (by
+        (tactic
+          name: (identifier)
+          (identifier)
+          (tactic_alt
+            pattern: (identifier)
+            (tactic
+              name: (identifier)))
+          (tactic_alt
+            pattern: (app
+              fn: (app
+                fn: (identifier)
+                arg: (identifier))
+              arg: (identifier))
+            (tactic
+              name: (identifier)
+              (list_lit
+                (identifier)))
+            (tactic
+              name: (identifier))))
+        (tactic
+          name: (identifier))))))
+
+==============
+Locations and clause keywords
+==============
+
+example : P := by
+  simp only [foo, ← bar] at h ⊢
+  rw [baz] at *
+  simpa using h
+  induction xs generalizing ys
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          name: (identifier)
+          (list_lit
+            (identifier)
+            (unary_op
+              rhs: (identifier)))
+          (location
+            (identifier)
+            (goal_const)))
+        (tactic
+          name: (identifier)
+          (list_lit
+            (identifier))
+          (location))
+        (tactic
+          name: (identifier)
+          (identifier))
+        (tactic
+          name: (identifier)
+          (identifier)
+          (identifier))))))
+
+==============
+Rcases patterns and first alternatives
+==============
+
+example : P := by
+  rcases h with ⟨a, b⟩ | c
+  first | rfl | (simp; ring)
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          name: (identifier)
+          (identifier)
+          (anon_ctor
+            (identifier)
+            (identifier))
+          (tactic_alt
+            pattern: (identifier)))
+        (tactic
+          name: (identifier)
+          (tactic_alt
+            pattern: (identifier))
+          (tactic_alt
+            pattern: (paren
+              (identifier)
+              (identifier))))))))
+
+==============
+Config flags
+==============
+
+example : P := by simp +arith [h]
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          name: (identifier)
+          (config_flag
+            name: (identifier))
+          (list_lit
+            (identifier)))))))
+
+==============
+Tactics named like keywords
+==============
+
+example : P := by
+  have : x = y := foo
+  show _ = _
+  exists 1, 2
+  sorry
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          (binary_op
+            lhs: (identifier)
+            rhs: (identifier))
+          (identifier))
+        (tactic
+          (binary_op
+            lhs: (hole)
+            rhs: (hole)))
+        (tactic
+          (num_lit)
+          (num_lit))
+        (tactic
+          name: (sorry))))))
+
+==============
+Case and next take nested sequences
+==============
+
+example : P := by
+  case inl h => exact h
+  next => decide
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          name: (identifier)
+          (app
+            fn: (identifier)
+            arg: (identifier))
+          (tactic
+            name: (identifier)
+            (identifier)))
+        (tactic
+          name: (identifier)
+          (tactic
+            name: (identifier)))))))
+
+==============
+Hash-prefixed tactic
+==============
+
+example : P := by
+  #adaptation_note
+  simp
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (by
+        (tactic
+          name: (hash_cmd_name))
+        (tactic
+          name: (identifier))))))
+
+==============
+Calc tactic
+==============
+
+example : a = c := by
+  calc a = b := hab
+    _ = c := hbc
+
+---
+
+(module
+  (declaration
+    (example
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      body: (by
+        (calc
+          step: (calc_step
+            term: (binary_op
+              lhs: (identifier)
+              rhs: (identifier))
+            proof: (identifier))
+          step: (calc_step
+            term: (binary_op
+              lhs: (hole)
+              rhs: (identifier))
+            proof: (identifier)))))))
+
+==============
+Calc term
+==============
+
+example : a = c := calc
+  a = b := hab
+  _ = c := hbc
+
+---
+
+(module
+  (declaration
+    (example
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      body: (calc
+        step: (calc_step
+          term: (binary_op
+            lhs: (identifier)
+            rhs: (identifier))
+          proof: (identifier))
+        step: (calc_step
+          term: (binary_op
+            lhs: (hole)
+            rhs: (identifier))
+          proof: (identifier))))))
+
+==============
+Inline by does not swallow the next line
+==============
+
+instance : Foo where
+  bar := by simp [h]
+  baz := rfl
+
+---
+
+(module
+  (declaration
+    (instance
+      type: (identifier)
+      (where_struct
+        (struct_field
+          name: (identifier)
+          value: (by
+            (tactic
+              name: (identifier)
+              (list_lit
+                (identifier)))))
+        (struct_field
+          name: (identifier)
+          value: (identifier))))))
+
+==============
+Inline by inside an anonymous constructor
+==============
+
+example : P ∧ Q := ⟨by simp, by
+  intro h
+  exact h⟩
+
+---
+
+(module
+  (declaration
+    (example
+      type: (binary_op
+        lhs: (identifier)
+        rhs: (identifier))
+      body: (anon_ctor
+        (by
+          (tactic
+            name: (identifier)))
+        (by
+          (tactic
+            name: (identifier)
+            (identifier))
+          (tactic
+            name: (identifier)
+            (identifier)))))))
+
+==============
+By block closed by a bracket
+==============
+
+example : P := foo (by
+  intro h
+  exact h)
+
+---
+
+(module
+  (declaration
+    (example
+      type: (identifier)
+      body: (app
+        fn: (identifier)
+        arg: (paren
+          (by
+            (tactic
+              name: (identifier)
+              (identifier))
+            (tactic
+              name: (identifier)
+              (identifier))))))))

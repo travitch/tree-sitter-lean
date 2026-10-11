@@ -95,6 +95,28 @@
 ; bare identifier.
 (app fn: (identifier) @function.call)
 
+; ---------- tactics -------------------------------------------------------
+
+; Tactic names. The tactic set is open-ended, so the head of every
+; generic `tactic` is captured; Lean's semantic tokens likewise mark
+; tactic names as keywords.
+(tactic name: (identifier) @keyword)
+
+[
+  "at"
+  "only"
+  "using"
+  "generalizing"
+  "says"
+  "calc"
+] @keyword
+
+(location "*" @character.special)
+(config_flag name: (identifier) @variable.parameter)
+
+(tactic_focus ["·" "."] @punctuation.special)
+(tactic_combinator op: _ @operator)
+
 ; ---------- keywords ------------------------------------------------------
 
 ; Module-system keywords. `module`/`prelude`/`public`/`meta`/`all` each

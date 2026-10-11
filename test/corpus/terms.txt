@@ -496,7 +496,8 @@ By term
 (module
   (check
     term: (by
-      inline: (sorry))))
+      (tactic
+        name: (sorry)))))
 
 ==============
 Sorry

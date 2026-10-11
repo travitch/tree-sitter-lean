@@ -8,7 +8,10 @@
  *   2. Nested block/doc/module-doc comments.
  *   3. Raw string literals with matched `#`-delimiter counts.
  *   4. Layout-sensitive tokens `_indent`, `_dedent`, `_newline` that
- *      delimit tactic and do-block bodies.
+ *      delimit tactic and do-block bodies, plus `_column_indent` and
+ *      `_by_column_indent`, which open a block at the column of the
+ *      next token rather than on a newline (`by tac`, `· tac`,
+ *      `| pat => tac`).
  *
  * Lean's character classifications mirror `src/Init/Meta/Defs.lean`
  * upstream.
@@ -33,6 +36,8 @@ enum TokenType {
   NEWLINE,
   NORM_OPEN,
   NORM_CLOSE,
+  COLUMN_INDENT,
+  BY_COLUMN_INDENT,
   ERROR_SENTINEL,
 };
 
@@ -126,6 +131,13 @@ static inline bool is_notation_continue(int32_t c) {
 struct Scanner {
   Array(uint16_t) indents;
 };
+
+/* Marks an indent-stack entry opened by an inline `by tac`. Such a
+   block sits inside a term, so besides closing brackets a `,` can end
+   it (`⟨by simp, h⟩`). Not set for `· tac`, whose tactics may take
+   comma-separated arguments (`· use 1, 2`). */
+#define BY_BLOCK_FLAG   0x8000
+#define INDENT_MASK     0x7fff
 
 static inline void advance(TSLexer *lexer) { lexer->advance(lexer, false); }
 static inline void skip(TSLexer *lexer)    { lexer->advance(lexer, true); }
@@ -344,6 +356,7 @@ static bool scan_block_or_doc_comment(TSLexer *lexer,
   }
 
   if (!scan_block_comment_body(lexer)) return false;
+  lexer->mark_end(lexer);
   lexer->result_symbol = kind;
   return true;
 }
@@ -373,6 +386,7 @@ static bool scan_raw_string_after_r(TSLexer *lexer) {
         seen++;
       }
       if (seen == hashes) {
+        lexer->mark_end(lexer);
         lexer->result_symbol = RAW_STRING_LITERAL;
         return true;
       }
@@ -413,8 +427,38 @@ static bool scan_layout(struct Scanner *scanner, TSLexer *lexer,
     skip(lexer);
   }
 
+  /* A closing bracket ends a block opened inside the brackets, on the
+     same line as the block's last statement:
+
+       (by
+         intro h
+         simp_all)
+
+     If the parser could still use the bracket inside the block (it
+     opened there), DEDENT would not be valid. Zero-width. */
+  bool by_block = scanner->indents.size > 1
+    && (*array_back(&scanner->indents) & BY_BLOCK_FLAG);
+  if (lexer->lookahead == ')' || lexer->lookahead == ']'
+      || lexer->lookahead == '}' || lexer->lookahead == 0x27e9 /* ⟩ */
+      || (lexer->lookahead == ',' && by_block)) {
+    if (valid_symbols[DEDENT] && scanner->indents.size > 1) {
+      lexer->mark_end(lexer);
+      array_pop(&scanner->indents);
+      lexer->result_symbol = DEDENT;
+      return true;
+    }
+    return false;
+  }
+
   /* If we're not at a newline (or EOF), no layout token applies. */
   if (lexer->lookahead != '\n' && !lexer->eof(lexer)) return false;
+
+  /* DEDENT is zero-width at this position: the newline stays unconsumed
+     so the next scan can emit another DEDENT or the NEWLINE separating
+     the statement that follows a closed nested block (`have h := by`
+     plus an indented proof, then the next tactic). INDENT and NEWLINE
+     re-mark the end below, consuming the newline as before. */
+  lexer->mark_end(lexer);
 
   uint32_t indent = 0;
   bool saw_newline = false;
@@ -446,18 +490,31 @@ static bool scan_layout(struct Scanner *scanner, TSLexer *lexer,
   if (!saw_newline) return false;
 
   uint16_t top = scanner->indents.size > 0
-    ? *array_back(&scanner->indents)
+    ? *array_back(&scanner->indents) & INDENT_MASK
     : 0;
 
-  /* `|` always continues the surrounding rule (match alt, ctor alt,
-     pipe-operator) — never terminates a layout block. Suppress
-     NEWLINE/DEDENT at the start of a `|`-line so the parser stays
-     inside the match/inductive/etc. */
-  if (lexer->lookahead == '|') return false;
+  /* `|` continues the surrounding rule (match alt, ctor alt, tactic
+     alt) — it never separates statements, so suppress NEWLINE at the
+     start of a `|`-line, and INDENT too. It does close blocks opened
+     to its right, such as the body of the previous alternative:
+
+       cases h with
+       | inl h =>
+         simp
+       | inr h => simp */
+  if (lexer->lookahead == '|') {
+    if (indent < top && valid_symbols[DEDENT]) {
+      array_pop(&scanner->indents);
+      lexer->result_symbol = DEDENT;
+      return true;
+    }
+    return false;
+  }
 
   if (indent > top) {
     if (valid_symbols[INDENT]) {
       array_push(&scanner->indents, (uint16_t)indent);
+      lexer->mark_end(lexer);
       lexer->result_symbol = INDENT;
       return true;
     }
@@ -473,6 +530,7 @@ static bool scan_layout(struct Scanner *scanner, TSLexer *lexer,
     return true;
   }
   if (indent == top && valid_symbols[NEWLINE]) {
+    lexer->mark_end(lexer);
     lexer->result_symbol = NEWLINE;
     return true;
   }
@@ -498,6 +556,25 @@ static bool scan(struct Scanner *scanner, TSLexer *lexer,
       || lexer->lookahead == '\r'
       || lexer->lookahead == '\n') {
     skip(lexer);
+  }
+
+  /* `by tac`, `· tac` and `=> tac` open a block whose lines align with
+     the first tactic, not with the line's indentation: push the column
+     of the next token, so that following lines in that column read as
+     NEWLINE, shallower ones as DEDENT, and deeper ones as
+     continuations. Zero-width. */
+  if ((valid_symbols[COLUMN_INDENT] || valid_symbols[BY_COLUMN_INDENT])
+      && !lexer->eof(lexer)) {
+    uint16_t column = (uint16_t)lexer->get_column(lexer) & INDENT_MASK;
+    lexer->mark_end(lexer);
+    if (valid_symbols[BY_COLUMN_INDENT]) {
+      array_push(&scanner->indents, column | BY_BLOCK_FLAG);
+      lexer->result_symbol = BY_COLUMN_INDENT;
+    } else {
+      array_push(&scanner->indents, column);
+      lexer->result_symbol = COLUMN_INDENT;
+    }
+    return true;
   }
 
   /* Norm bars `‖ … ‖`. The same glyph opens and closes, disambiguated

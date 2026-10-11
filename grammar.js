@@ -53,6 +53,12 @@ export default grammar({
        unambiguous as the asymmetric `⌊ … ⌋`. */
     $._norm_open,
     $._norm_close,
+    /* Zero-width: opens a layout block at the column of the next token
+       (`· tac`, `| pat => tac`), closed by the ordinary `_dedent`. */
+    $._column_indent,
+    /* The same, for an inline `by tac` block, which a `,` also closes
+       (`⟨by simp, h⟩`). */
+    $._by_column_indent,
     $.error_sentinel,
   ],
 
@@ -772,7 +778,10 @@ export default grammar({
        body of `field := value` lines (instance/anonymous-structure
        def form). */
     _decl_val: $ => choice(
-      seq(field('body', seq(':=', $._term)), optional($.where_decls)),
+      seq(
+        field('body', seq(':=', choice($._term, $.calc))),
+        optional($.where_decls),
+      ),
       seq(repeat1($.match_alt), optional($.where_decls)),
       seq($.where_struct, optional($.where_decls)),
     ),
@@ -929,7 +938,6 @@ export default grammar({
       $.let,
       $.have,
       $.suffices,
-      $.by_cases,
       $.show,
       $.if_then_else,
       $.forall,
@@ -939,7 +947,6 @@ export default grammar({
       $.by,
       $.do_block,
       $.match,
-      $.tactic_case,
     ),
 
     _op_term: $ => choice(
@@ -951,7 +958,6 @@ export default grammar({
       $.binary_op,
       $.unary_op,
       $.universe_app,
-      $.induction,
     ),
 
     _term_atom: $ => choice(
@@ -1120,20 +1126,16 @@ export default grammar({
         field('section', choice('↑', '↓', '↥')),
         /* Regular parenthesized term, optionally type-ascribed, with
            an optional tuple tail — or a `;`-separated sequence.
-           `(tac₁; tac₂)` is Lean's parenthesized tactic sequence
-           (`by (intro h; exact h)`, `cases n <;> (skip; rfl)`), and a
-           trailing `;` is permitted (`by (trivial;)`). Comma and
-           semicolon tails are mutually exclusive, matching Lean: a
-           tuple is never `;`-separated.
 
-           This makes `paren` accept `;` in every context, including
-           do-element position where Lean rejects it (`do (a; b)` is an
-           error there; the valid spellings are `do (do a; b)` and
-           `do { a; b }`). Over-accepting is the same tradeoff the
-           grammar already takes by not splitting the tactic, term, and
-           do tiers — keeping the sequence inside `paren` costs no LR
-           conflict, whereas a separate parenthesized-sequence rule
-           would need a GLR conflict on the shared `'(' _term` prefix. */
+           In tactic position `(tac₁; tac₂)` is a `tactic_paren`. But
+           combinators that take a tactic sequence (`try`, `all_goals`,
+           `repeat`, `first | …`) are generic tactics whose arguments
+           are terms, so `try (simp; ring)` reaches here instead.
+           Accepting the `;` sequence in `paren` covers that without a
+           GLR conflict between the term and tactic readings of `(`,
+           which would have to be resolved for every keyword-named
+           tactic (`show`, `have`, `exists`, …). The cost is accepting
+           `do (a; b)`, which Lean rejects. */
         seq(
           $._term,
           choice(
@@ -1416,13 +1418,6 @@ export default grammar({
         field('op', choice('::', '::ᵣ', '::ₘ')),
         field('rhs', $._op_term),
       )),
-      /* `<;>` — tactic-combinator (run-on-all-goals); appears in
-         tactic-block bodies. */
-      prec.left(PREC.pipe, seq(
-        field('lhs', $._op_term),
-        field('op', '<;>'),
-        field('rhs', $._op_term),
-      )),
       prec.right(PREC.append, seq(
         field('lhs', $._op_term),
         field('op', '++'),
@@ -1604,13 +1599,10 @@ export default grammar({
        Inline binders are not modeled — write `let f := fun x => …`
        instead. The `←`/`<-` form is monadic bind for do-blocks. */
     let: $ => prec.right(seq(
-      /* `letI` is Mathlib's "let instance" variant; `obtain` is a
-         tactic-language sibling for pattern-binding from a result.
-         Mathlib's `set x := e with h` tactic deliberately is *not*
-         here: `word` keyword extraction would then stop `set` from
-         ever lexing as an identifier, and it is far more commonly the
-         state-monad function (`set (s + 1)` in a `do` block). */
-      choice('let', 'letI', 'obtain'),
+      /* `letI` is Mathlib's "let instance" variant. The tactic-only
+         binders (`obtain`, Mathlib's `set x := e with h`) are generic
+         `tactic`s rather than terms. */
+      choice('let', 'letI'),
       optional(choice('mut', 'rec')),
       field('name', choice(
         $._binder_ident,
@@ -1649,27 +1641,6 @@ export default grammar({
       ),
     )),
 
-    /* `by_cases h : cond` — splits a tactic goal on the truth of
-       `cond`, binding `h` to a proof in each branch. */
-    by_cases: $ => prec.right(seq(
-      'by_cases',
-      field('name', $._binder_ident),
-      $._type_spec,
-    )),
-
-/* `induction x [using ind]? [generalizing ys]? [with | … ]?` —
-       Lean's structural-induction tactic. Same shape with `cases` for
-       the case-analysis tactic. Both are written as terms inside a
-       `by`-block, so they belong with the other lead terms. The
-       `with`-clause holds match-style branches. */
-    induction: $ => prec.right(seq(
-      choice('induction', 'cases'),
-      sep1(field('target', $._term_atom), ','),
-      optional(seq('using', field('elim', $.identifier))),
-      optional(seq('generalizing', repeat1(field('gen', $._binder_ident)))),
-      optional(seq('with', repeat1($.match_alt))),
-    )),
-
     show: $ => prec.right(seq(
       'show',
       field('type', $._term),
@@ -1698,27 +1669,222 @@ export default grammar({
       field('else', $._term),
     )),
 
-    /*
-     * `by` and `do` accept either a single inline term or an
-     * indent-delimited block of `;`/newline-separated terms.
+    /* ===== tactics =======================================================
      *
-     * Tactics and do-elements are deliberately *not* given dedicated
-     * rules. Every extra rule pulling on `_term` multiplied the LR
-     * state count; an earlier draft with named tactic forms grew
-     * parser.c to 10MB. Tooling can still recognize specific tactic
-     * vocabulary by inspecting the head identifier of an `app` node.
+     * `by` switches from the term grammar to the tactic grammar. Lean's
+     * tactic category is open — core, Std, Mathlib and every downstream
+     * project register their own with `syntax … : tactic` — so named
+     * tactics are not enumerated. Instead this tier models the
+     * structure *around* tactics, which is fixed:
      *
-     * The grammar accepts `let mut`, `←`/`<-` (bind), and `for`/`while`
-     * /`return` etc. by virtue of those being valid Lean syntax that
-     * the term-tier rules already cover (via `let`, the `for` keyword
-     * inside ranges, etc.). Coverage is approximate but far cheaper.
+     *   - sequences: `;`-separated on one line, or an indented block
+     *     with one tactic per line (`tacticSeq1Indented`);
+     *   - focusing `· tacs`, parenthesized `(tacs)`, and the `t <;> t`
+     *     / `t <|> t` combinators;
+     *   - `| pat => tacs` alternatives (`induction … with`, `match`,
+     *     `cases … with`) and `=> tacs` nested sequences (`case`,
+     *     `next`, `conv`, `on_goal`);
+     *   - `calc` chains.
+     *
+     * Everything else is a generic `tactic`: a head name, then an
+     * optional term and any number of clauses — clause keywords (`at`,
+     * `only`, `using`, `with`, `generalizing`, …) or punctuation (`:=`,
+     * `:`, `,`, `|`), each optionally followed by a term. This
+     * over-approximates real tactics — `simp only [h] at h' ⊢`,
+     * `obtain ⟨x, hx⟩ | h := foo`, `induction n using Nat.rec with …` —
+     * without a rule per tactic, which once grew parser.c to 10MB.
+     *
+     * A sequence starting on the `by` line opens its block at the
+     * column of its first tactic, as Lean's `withPosition` does: a
+     * later line in that column is the next tactic, one further left
+     * ends the block, one further right continues the current tactic.
+     * So `:= by simp [h]` does not swallow the next line of a
+     * multi-line statement.
      */
-    by: $ => seq('by', $._block_body),
+    by: $ => seq('by', choice(
+      $._tactic_block,
+      seq(
+        $._by_column_indent,
+        sep1($._tactic, choice(';', $._newline)),
+        $._dedent,
+      ),
+    )),
+
+    /* The body after `=>` in an alternative or `case`. Like `by`, a
+       body starting on the same line opens its block at its first
+       tactic, so the `|` of the next alternative, further left, closes
+       it rather than nesting inside its last tactic. */
+    _tactic_seq: $ => choice(
+      $._tactic_block,
+      $._tactic_column_block,
+    ),
+    _tactic_block: $ => seq(
+      $._indent,
+      sep1($._tactic, choice(';', $._newline)),
+      $._dedent,
+    ),
+    _tactic_column_block: $ => seq(
+      $._column_indent,
+      sep1($._tactic, choice(';', $._newline)),
+      $._dedent,
+    ),
+
+    _tactic: $ => choice(
+      $.tactic,
+      $.tactic_focus,
+      $.tactic_paren,
+      $.tactic_combinator,
+      $.calc,
+    ),
+
+    /* The head is usually an identifier (`simp`, `exact?`, `norm_num`,
+       `refine'`), but a handful of tactics share their spelling with a
+       term-level keyword, and `#`-tactics (`#adaptation_note`) share
+       the shape of `#`-commands. `sorry`/`admit` keep their `sorry`
+       node. */
+    tactic: $ => prec.right(seq(
+      field('name', choice(
+        $.identifier,
+        $.hash_cmd_name,
+        $.sorry,
+        'have', 'haveI', 'let', 'letI', 'show', 'suffices', 'exists',
+        'match', 'open', 'set_option',
+      )),
+      optional($._term),
+      repeat($._tactic_arg),
+    )),
+
+    /* Arguments are clauses, each optionally followed by one term.
+       Juxtaposed terms already parse as one application (`intro x y`),
+       so allowing a run of terms would add nothing but cost: every
+       term state would have to consider another term starting after
+       it, which doubles the parse table.
+
+       `=> tacs` is the nested sequence of `case tag x => tacs`,
+       `next => tacs`, `conv => tacs`, `on_goal 2 => tacs`. */
+    _tactic_arg: $ => choice(
+      $.location,
+      $.tactic_alt,
+      seq('=>', $._tactic_seq),
+      seq(
+        choice(
+          $.config_flag,
+          ':=', ':', ',',
+          'only', 'using', 'with', 'generalizing', 'in', 'from', 'says',
+        ),
+        optional(choice($._term, $.calc)),
+      ),
+    ),
+
+    /* `at h₁ h₂ ⊢` / `at *` — the hypotheses a tactic acts on. */
+    location: $ => prec.right(seq(
+      'at',
+      choice(
+        '*',
+        repeat1(choice($.identifier, $.goal_const)),
+      ),
+    )),
+
+    /* `simp +arith`, `decide +kernel` — boolean config shorthand.
+       `-flag` already parses as a `unary_op` term. */
+    config_flag: $ => seq('+', field('name', $.identifier)),
+
+    /* `| zero => tacs` / `| succ n ih => tacs` — an alternative of
+       `induction … with`, `cases … with`, or a tactic `match`. The
+       `=> tacs` is optional so the same node covers the bodiless `|`
+       of rcases patterns (`obtain ⟨x, hx⟩ | h := foo`) and of
+       `first | tac | tac`, whose alternatives are generic args.
+
+       Alternatives on separate lines are separated by layout: the next
+       `|` starts left of the previous body's column, closing it (see
+       `_tactic_seq`). On a single line, a later `|` nests into the
+       previous alternative's last tactic. */
+    tactic_alt: $ => prec.right(seq(
+      '|',
+      sep1(field('pattern', $._term), ','),
+      optional(seq(choice('=>', '↦'), $._tactic_seq)),
+    )),
+
+    /* `· tacs` focuses the main goal. The block's lines align with
+       its first tactic, which is deeper than the `·` itself:
+
+         · intro h
+           exact h
+
+       so the scanner opens it at that column (`_column_indent`) rather
+       than on a newline. Lines further right continue a tactic. */
+    tactic_focus: $ => seq(
+      choice('·', '.'),
+      $._tactic_column_block,
+    ),
+
+    /* `(tac₁; tac₂)`, trailing `;` permitted (`by (trivial;)`). */
+    tactic_paren: $ => seq(
+      '(',
+      sep1($._tactic, ';'),
+      optional(';'),
+      ')',
+    ),
+
+    /* `t₁ <;> t₂` runs `t₂` on every goal `t₁` produces; `t₁ <|> t₂`
+       falls back to `t₂` if `t₁` fails. */
+    tactic_combinator: $ => prec.left(1, seq(
+      field('lhs', $._tactic),
+      field('op', choice('<;>', '<|>')),
+      field('rhs', $._tactic),
+    )),
+
+    /* `calc a = b := proof₁
+             _ = c := proof₂` — a chain of relation steps. The first
+       step may omit its proof (`calc a` then `_ = b := …`).
+
+       Lean accepts `calc` anywhere a term goes, but as a general lead
+       term it nearly doubled the parse table: its `:=` and layout
+       tokens became possible follow-ups inside every nested term. It
+       is instead accepted where it actually appears: as a tactic, as
+       a declaration body (`theorem foo : a = c := calc …`), and after
+       a tactic clause (`have h : a = c := calc …`). */
+    calc: $ => prec.right(seq(
+      'calc',
+      choice(
+        seq(
+          field('step', alias($._calc_first_step, $.calc_step)),
+          optional(seq(
+            $._indent,
+            sep1(field('step', $.calc_step), $._newline),
+            $._dedent,
+          )),
+        ),
+        seq(
+          $._indent,
+          sep1(field('step', $.calc_step), $._newline),
+          $._dedent,
+        ),
+      ),
+    )),
+    _calc_first_step: $ => prec.right(seq(
+      field('term', $._term),
+      optional(seq(':=', field('proof', $._term))),
+    )),
+    calc_step: $ => seq(
+      field('term', $._term),
+      ':=',
+      field('proof', $._term),
+    ),
+
+    /* ===== do blocks ===================================================== */
+
+    /*
+     * `do` accepts either a single inline term or an indent-delimited
+     * block of `;`/newline-separated elements. Do-elements are not
+     * given dedicated rules: `let mut`, `←`/`<-` (bind), `return` etc.
+     * are covered by the term tier, plus `block_assign` for `x := v`.
+     */
     do_block: $ => seq('do', $._block_body),
 
     _block_body: $ => choice(
-      /* Inline `by tac; tac` and `do x; y` — multiple tactics
-         separated by semicolons, all on one line. */
+      /* Inline `do x; y` — multiple elements separated by semicolons,
+         all on one line. */
       prec.right(sep1(field('inline', $._term), ';')),
       seq(
         $._indent,
@@ -1748,19 +1914,6 @@ export default grammar({
       choice('=>', '↦'),
       field('body', $._term),
     ),
-
-    /* `case name args => body` — Lean tactic-language case selection
-       (analogous to a `match_alt` but goal-keyed). Stand-alone tactic
-       statement; commonly chained as sibling at the same indent. */
-    tactic_case: $ => prec.right(seq(
-      'case',
-      field('name', $.identifier),
-      repeat(field('arg', $._binder_ident)),
-      '=>',
-      field('body', $._term),
-    )),
-
-
 
     /* ===== lexicals (carried from stage 1) =============================== */
 
@@ -1825,8 +1978,19 @@ export default grammar({
     quotation: $ => seq(
       '`',
       token.immediate('('),
-      optional(prec.dynamic(1, seq(field('category', $.identifier), '|'))),
-      $._term,
+      choice(
+        seq(
+          optional(prec.dynamic(1, seq(field('category', $.identifier), '|'))),
+          $._term,
+        ),
+        /* `(tactic| simp <;> rfl) quotes tactic syntax, so its body
+           is parsed with the tactic grammar. */
+        seq(
+          field('category', alias('tactic', $.identifier)),
+          '|',
+          sep1($._tactic, ';'),
+        ),
+      ),
       ')',
     ),
 

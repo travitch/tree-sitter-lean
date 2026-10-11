@@ -614,9 +614,9 @@ Syntax quotation with category
   (check
     term: (quotation
       category: (identifier)
-      (app
-        fn: (identifier)
-        arg: (num_lit)))))
+      (tactic
+        name: (identifier)
+        (num_lit)))))
 
 ==============
 Match-style fun
@@ -1095,10 +1095,11 @@ example : Nat := by exact 0; rfl
     (example
       type: (identifier)
       body: (by
-        inline: (app
-          fn: (identifier)
-          arg: (num_lit))
-        inline: (identifier)))))
+        (tactic
+          name: (identifier)
+          (num_lit))
+        (tactic
+          name: (identifier))))))
 
 ==============
 Postfix operator opposite
@@ -1782,13 +1783,13 @@ example := by convert x <;> apply foo
   (declaration
     (example
       body: (by
-        inline: (binary_op
-          lhs: (app
-            fn: (identifier)
-            arg: (identifier))
-          rhs: (app
-            fn: (identifier)
-            arg: (identifier)))))))
+        (tactic_combinator
+          lhs: (tactic
+            name: (identifier)
+            (identifier))
+          rhs: (tactic
+            name: (identifier)
+            (identifier)))))))
 
 ==============
 letI for instance
@@ -2230,18 +2231,23 @@ Struct update with no new fields
 Obtain pattern-bind
 ==============
 
-#check obtain ⟨a, b⟩ := foo; a
+example := by obtain ⟨a, b⟩ := foo; exact a
 
 ---
 
 (module
-  (check
-    term: (let
-      name: (anon_ctor_binder
-        (identifier)
-        (identifier))
-      value: (identifier)
-      body: (identifier))))
+  (declaration
+    (example
+      body: (by
+        (tactic
+          name: (identifier)
+          (anon_ctor
+            (identifier)
+            (identifier))
+          (identifier))
+        (tactic
+          name: (identifier)
+          (identifier))))))
 
 ==============
 Down-coercion prefix
@@ -2268,16 +2274,13 @@ example := by rw [foo] at h ⊢
   (declaration
     (example
       body: (by
-        inline: (app
-          fn: (app
-            fn: (app
-              fn: (app
-                fn: (identifier)
-                arg: (list_lit
-                  (identifier)))
-              arg: (identifier))
-            arg: (identifier))
-          arg: (goal_const))))))
+        (tactic
+          name: (identifier)
+          (list_lit
+            (identifier))
+          (location
+            (identifier)
+            (goal_const)))))))
 
 ==============
 Suffices block
@@ -2293,13 +2296,13 @@ example := by
   (declaration
     (example
       body: (by
-        stmt: (suffices
+        (tactic
+          (identifier)
+          (identifier)
+          (identifier))
+        (tactic
           name: (identifier)
-          type: (identifier)
-          value: (identifier))
-        stmt: (app
-          fn: (identifier)
-          arg: (identifier))))))
+          (identifier))))))
 
 ==============
 Where with elision marker
@@ -2351,14 +2354,18 @@ example := by
   (declaration
     (example
       body: (by
-        stmt: (tactic_case
+        (tactic
           name: (identifier)
-          arg: (identifier)
-          arg: (identifier)
-          arg: (identifier)
-          body: (app
-            fn: (identifier)
-            arg: (identifier)))))))
+          (app
+            fn: (app
+              fn: (app
+                fn: (identifier)
+                arg: (identifier))
+              arg: (identifier))
+            arg: (identifier))
+          (tactic
+            name: (identifier)
+            (identifier)))))))
 
 ==============
 Struct field with implicit binder
@@ -2454,9 +2461,10 @@ example := by by_cases h : foo
   (declaration
     (example
       body: (by
-        inline: (by_cases
+        (tactic
           name: (identifier)
-          type: (identifier))))))
+          (identifier)
+          (identifier))))))
 
 ==============
 Subscript with proof
@@ -2700,20 +2708,22 @@ example : Foo := by
     (example
       type: (identifier)
       body: (by
-        stmt: (induction
-          target: (identifier)
-          (match_alt
+        (tactic
+          name: (identifier)
+          (identifier)
+          (tactic_alt
             pattern: (identifier)
-            body: (identifier))
-          (match_alt
+            (tactic
+              name: (identifier)))
+          (tactic_alt
             pattern: (app
               fn: (app
                 fn: (identifier)
                 arg: (identifier))
               arg: (identifier))
-            body: (app
-              fn: (identifier)
-              arg: (identifier))))))))
+            (tactic
+              name: (identifier)
+              (identifier))))))))
 
 ==============
 cases tactic with match arms
@@ -2731,18 +2741,21 @@ example : Bar := by
     (example
       type: (identifier)
       body: (by
-        stmt: (induction
-          target: (identifier)
-          (match_alt
+        (tactic
+          name: (identifier)
+          (identifier)
+          (tactic_alt
             pattern: (identifier)
-            body: (identifier))
-          (match_alt
+            (tactic
+              name: (identifier)))
+          (tactic_alt
             pattern: (app
               fn: (app
                 fn: (identifier)
                 arg: (identifier))
               arg: (identifier))
-            body: (identifier)))))))
+            (tactic
+              name: (identifier))))))))
 
 ==============
 cases tactic combined with <;>
@@ -2757,10 +2770,12 @@ example : Foo := by cases b <;> rfl
     (example
       type: (identifier)
       body: (by
-        inline: (binary_op
-          lhs: (induction
-            target: (identifier))
-          rhs: (identifier))))))
+        (tactic_combinator
+          lhs: (tactic
+            name: (identifier)
+            (identifier))
+          rhs: (tactic
+            name: (identifier)))))))
 
 ==============
 syntax declaration with named-attr and category
@@ -2815,11 +2830,11 @@ macro "exfalso" : tactic => `(tactic| refine False.elim ?_)
     category: (identifier)
     body: (quotation
       category: (identifier)
-      (app
-        fn: (app
+      (tactic
+        name: (identifier)
+        (app
           fn: (identifier)
-          arg: (identifier))
-        arg: (synth_hole)))))
+          arg: (synth_hole))))))
 
 ==============
 macro_rules with single alt
@@ -2834,10 +2849,12 @@ macro_rules | `(tactic| rfl) => `(tactic| apply_rfl)
     (match_alt
       pattern: (quotation
         category: (identifier)
-        (identifier))
+        (tactic
+          name: (identifier)))
       body: (quotation
         category: (identifier)
-        (identifier)))))
+        (tactic
+          name: (identifier))))))
 
 ==============
 elab_rules with category and alt
@@ -2854,10 +2871,12 @@ elab_rules : tactic
     (match_alt
       pattern: (quotation
         category: (identifier)
-        (identifier))
+        (tactic
+          name: (identifier)))
       body: (quotation
         category: (identifier)
-        (identifier)))))
+        (tactic
+          name: (identifier))))))
 
 ==============
 Mutual block
