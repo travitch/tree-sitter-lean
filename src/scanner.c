@@ -12,6 +12,8 @@
  *      `_by_column_indent`, which open a block at the column of the
  *      next token rather than on a newline (`by tac`, `· tac`,
  *      `| pat => tac`).
+ *   5. The bars of `‖x‖` and `|x|`, which open and close with the same
+ *      glyph.
  *
  * Lean's character classifications mirror `src/Init/Meta/Defs.lean`
  * upstream.
@@ -38,6 +40,8 @@ enum TokenType {
   NORM_CLOSE,
   COLUMN_INDENT,
   BY_COLUMN_INDENT,
+  ABS_OPEN,
+  ABS_CLOSE,
   ERROR_SENTINEL,
 };
 
@@ -543,6 +547,15 @@ static bool scan(struct Scanner *scanner, TSLexer *lexer,
                  const bool *valid_symbols) {
   if (valid_symbols[ERROR_SENTINEL]) return false;
 
+  /* Closing bar of `|x|`: it must hug the term, so check it before
+     anything skips whitespace. */
+  if (valid_symbols[ABS_CLOSE] && lexer->lookahead == '|') {
+    advance(lexer);
+    lexer->mark_end(lexer);
+    lexer->result_symbol = ABS_CLOSE;
+    return true;
+  }
+
   /* Layout tokens have to be considered before the whitespace skip —
      they're triggered by newlines and leading-line indentation. */
   if (valid_symbols[INDENT] || valid_symbols[DEDENT] || valid_symbols[NEWLINE]) {
@@ -575,6 +588,30 @@ static bool scan(struct Scanner *scanner, TSLexer *lexer,
       lexer->result_symbol = COLUMN_INDENT;
     }
     return true;
+  }
+
+  /* `|x|`: an opening bar must hug its term, and the line must hold a
+     closing bar that hugs the term from the right. Alternatives
+     (`| pat`), `||`, `|>` and bars in quotation heads (`(tactic|(`,
+     no closing bar) all fall through to the internal lexer. */
+  if (valid_symbols[ABS_OPEN] && lexer->lookahead == '|') {
+    advance(lexer);
+    int32_t c = lexer->lookahead;
+    if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '|'
+        || c == '>' || lexer->eof(lexer)) {
+      return false;
+    }
+    lexer->mark_end(lexer);
+    bool prev_blank = false;
+    while (!lexer->eof(lexer) && lexer->lookahead != '\n') {
+      if (lexer->lookahead == '|' && !prev_blank) {
+        lexer->result_symbol = ABS_OPEN;
+        return true;
+      }
+      prev_blank = lexer->lookahead == ' ' || lexer->lookahead == '\t';
+      advance(lexer);
+    }
+    return false;
   }
 
   /* Norm bars `‖ … ‖`. The same glyph opens and closes, disambiguated

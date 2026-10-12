@@ -892,3 +892,313 @@ Infix operators keep their attached modifier
     term: (binary_op
       lhs: (identifier)
       rhs: (identifier))))
+
+==============
+Bitwise, boolean xor and applicative operators
+==============
+
+example := ~~~a &&& b ||| c ^^^ d <<< 2 >>> 1
+example := a ^^ b && c
+example := p *> q <* r
+
+---
+
+(module
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (binary_op
+          lhs: (unary_op
+            rhs: (identifier))
+          rhs: (identifier))
+        rhs: (binary_op
+          lhs: (identifier)
+          rhs: (binary_op
+            lhs: (binary_op
+              lhs: (identifier)
+              rhs: (num_lit))
+            rhs: (num_lit))))))
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (binary_op
+          lhs: (identifier)
+          rhs: (identifier)))))
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (binary_op
+          lhs: (identifier)
+          rhs: (identifier))
+        rhs: (identifier)))))
+
+==============
+BitVec literals and bif
+==============
+
+example := 5#w + 0#(w + 1)
+example := bif c then t else e
+
+---
+
+(module
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (bitvec_lit)
+        rhs: (bitvec_lit
+          width: (binary_op
+            lhs: (identifier)
+            rhs: (num_lit))))))
+  (declaration
+    (example
+      body: (if_then_else
+        cond: (identifier)
+        then: (identifier)
+        else: (identifier)))))
+
+==============
+Unique existence, binder predicates, negated binders
+==============
+
+example : ∃! n, n = 0 := foo
+example : ∀ k < n, ∃ m ≥ k, p m := foo
+theorem t : ¬∃ x, p x := foo
+
+---
+
+(module
+  (declaration
+    (example
+      type: (exists
+        (binders
+          (identifier))
+        body: (binary_op
+          lhs: (identifier)
+          rhs: (num_lit)))
+      body: (identifier)))
+  (declaration
+    (example
+      type: (forall
+        (binders
+          (identifier))
+        bound: (identifier)
+        body: (exists
+          (binders
+            (identifier))
+          bound: (identifier)
+          body: (app
+            fn: (identifier)
+            arg: (identifier))))
+      body: (identifier)))
+  (declaration
+    (theorem
+      name: (identifier)
+      type: (unary_op
+        rhs: (exists
+          (binders
+            (identifier))
+          body: (app
+            fn: (identifier)
+            arg: (identifier))))
+      body: (identifier))))
+
+==============
+Prefix operators as application arguments
+==============
+
+example := f ↑x y
+example := .up !b.down
+example := g ¬p
+
+---
+
+(module
+  (declaration
+    (example
+      body: (app
+        fn: (app
+          fn: (identifier)
+          arg: (unary_op
+            rhs: (identifier)))
+        arg: (identifier))))
+  (declaration
+    (example
+      body: (app
+        fn: (dot_ident
+          name: (identifier))
+        arg: (unary_op
+          rhs: (identifier)))))
+  (declaration
+    (example
+      body: (app
+        fn: (identifier)
+        arg: (unary_op
+          rhs: (identifier))))))
+
+==============
+Match with a named equation
+==============
+
+example := match h : xs with
+  | [] => 0
+  | _ :: _ => 1
+
+---
+
+(module
+  (declaration
+    (example
+      body: (match
+        hyp: (identifier)
+        scrutinee: (identifier)
+        (match_alt
+          pattern: (list_lit)
+          body: (num_lit))
+        (match_alt
+          pattern: (binary_op
+            lhs: (hole)
+            rhs: (hole))
+          body: (num_lit))))))
+
+==============
+Universe level expressions and numeric pipeline projection
+==============
+
+example := Foo.{max u v, u+1, _}
+example := p |>.1
+
+---
+
+(module
+  (declaration
+    (example
+      body: (universe_app
+        term: (identifier)
+        level: (level_max
+          arg: (identifier)
+          arg: (identifier))
+        level: (level_succ
+          level: (identifier)
+          offset: (num_lit))
+        level: (hole))))
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (dot_ident
+          name: (num_lit))))))
+
+==============
+Absolute value bars
+==============
+
+example := |x - y| ≤ |x| + |y|
+
+---
+
+(module
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (abs
+          term: (binary_op
+            lhs: (identifier)
+            rhs: (identifier)))
+        rhs: (binary_op
+          lhs: (abs
+            term: (identifier))
+          rhs: (abs
+            term: (identifier)))))))
+
+==============
+Brace binders in dependent arrows and set-builder predicates
+==============
+
+theorem t : {a b : Nat} → a < b → 0 < b := foo
+example : ⦃x : α⦄ → p x := foo
+example := {x ∈ s | p x}
+
+---
+
+(module
+  (declaration
+    (theorem
+      name: (identifier)
+      type: (binary_op
+        lhs: (implicit_binder
+          name: (app
+            fn: (identifier)
+            arg: (identifier))
+          type: (identifier))
+        rhs: (binary_op
+          lhs: (identifier)
+          rhs: (binary_op
+            lhs: (identifier)
+            rhs: (binary_op
+              lhs: (num_lit)
+              rhs: (identifier)))))
+      body: (identifier)))
+  (declaration
+    (example
+      type: (binary_op
+        lhs: (strict_implicit_binder
+          name: (identifier)
+          type: (identifier))
+        rhs: (app
+          fn: (identifier)
+          arg: (identifier)))
+      body: (identifier)))
+  (declaration
+    (example
+      body: (set_builder
+        binder: (binary_op
+          lhs: (identifier)
+          rhs: (identifier))
+        pred: (app
+          fn: (identifier)
+          arg: (identifier))))))
+
+==============
+Range and slice notation
+==============
+
+example := xs[lo...hi] ++ xs[*...<n] ++ xs[lo<...=hi] ++ xs[lo...*]
+example := a ∈ lo...<hi + 1
+
+---
+
+(module
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (subscript
+          term: (identifier)
+          index: (range
+            lower: (identifier)
+            upper: (identifier)))
+        rhs: (binary_op
+          lhs: (subscript
+            term: (identifier)
+            index: (range
+              upper: (identifier)))
+          rhs: (binary_op
+            lhs: (subscript
+              term: (identifier)
+              index: (range
+                lower: (identifier)
+                upper: (identifier)))
+            rhs: (subscript
+              term: (identifier)
+              index: (range
+                lower: (identifier))))))))
+  (declaration
+    (example
+      body: (binary_op
+        lhs: (identifier)
+        rhs: (range
+          lower: (identifier)
+          upper: (binary_op
+            lhs: (identifier)
+            rhs: (num_lit)))))))

@@ -17,11 +17,17 @@ const PREC = {
   arrow:  10,
   iff:    20,
   or:     30,
+  xor:    33,
   and:    35,
   cmp:    50,
+  range:  55,
+  bor:    56,
+  bxor:   57,
+  band:   58,
   append: 60,
   add:    70,
   mul:    80,
+  shift:  82,
   pow:    85,
   comp:   90,
   pipe:   95,
@@ -59,6 +65,10 @@ export default grammar({
     /* The same, for an inline `by tac` block, which a `,` also closes
        (`⟨by simp, h⟩`). */
     $._by_column_indent,
+    /* Opening bar of `|x|`, emitted only when a bar is followed by a
+       non-blank and the line has a later closing bar. */
+    $._abs_open,
+    $._abs_close,
     $.error_sentinel,
   ],
 
@@ -225,12 +235,26 @@ export default grammar({
       )),
     )),
 
-    /* `grind_pattern Foo => rhs` — registers a `grind` pattern. */
+    /* `grind_pattern foo => p₁, p₂ where c₁; c₂` — registers a
+       multi-pattern for `grind`, with optional instantiation
+       constraints (`x =/= y`, `guard e`, `gen < n`) after `where`. */
     grind_pattern_cmd: $ => seq(
+      optional(choice('scoped', 'local')),
       'grind_pattern',
       field('name', $.identifier),
       '=>',
-      field('pattern', $._term),
+      sep1(field('pattern', $._term), ','),
+      optional(seq(
+        'where',
+        choice(
+          sep1(field('constraint', $._term), ';'),
+          seq(
+            $._indent,
+            sep1(field('constraint', $._term), choice(';', $._newline)),
+            $._dedent,
+          ),
+        ),
+      )),
     ),
 
     /* `alias foo := bar` and `alias ⟨l, r⟩ := iff_lemma`. */
@@ -562,7 +586,9 @@ export default grammar({
       repeat(field('arg', choice(
         $._term_atom,
         $.unary_op,
-        '=', '←', '→', '↔',
+        /* `grind` modifiers: `=`, `←`, `→`, `⇒`, `⇐`, `.`, … (`=_`,
+           `_=_` and `←=` arrive as separate tokens). */
+        '=', '←', '→', '↔', '<-', '->', '⇒', '=>', '⇐', '<=', '.',
       ))),
     ),
 
@@ -746,6 +772,14 @@ export default grammar({
         optional($._binders),
         $._type_spec,
         optional(field('default', seq(':=', $._term))),
+      ),
+      /* `name := v` overrides the default of an inherited field (or
+         declares one whose type is inferred). */
+      seq(
+        optional($.decl_modifiers),
+        field('name', $._binder_ident),
+        optional($._binders),
+        field('default', seq(':=', $._term)),
       ),
       seq(
         '(',
@@ -990,6 +1024,7 @@ export default grammar({
     _term: $ => choice($._lead_term, $._op_term),
 
     _lead_term: $ => choice(
+      alias($.not_binder, $.unary_op),
       $.fun,
       $.let,
       $.have,
@@ -1014,6 +1049,7 @@ export default grammar({
       $.binary_op,
       $.unary_op,
       $.universe_app,
+      $.range,
     ),
 
     _term_atom: $ => choice(
@@ -1047,13 +1083,17 @@ export default grammar({
       $.floor_lit,
       $.ceil_lit,
       $.norm_lit,
+      $.abs,
       $.dbl_angle_lit,
       $.list_lit,
       $.range_lit,
       $.array_lit,
+      $.bitvec_lit,
       $.struct_lit,
       $.set_builder,
       $.subtype_lit,
+      alias($.implicit_binder_term, $.implicit_binder),
+      $.strict_implicit_binder,
       $.rest_pat,
       $.prec_annotated,
       $.pct_macro,
@@ -1063,8 +1103,9 @@ export default grammar({
     ),
 
     /* `.foo` is Lean's anonymous-namespace projection (used for
-       constructors and methods). Distinct from `e.foo` projection. */
-    dot_ident: $ => seq('.', field('name', $.identifier)),
+       constructors and methods). Distinct from `e.foo` projection.
+       The numeric form appears after `|>.` (`p |>.1`). */
+    dot_ident: $ => prec(1, seq('.', field('name', choice($.identifier, $.num_lit)))),
 
     /* `..` rest-pattern, used inside match arms. */
     rest_pat: _ => '..',
@@ -1224,12 +1265,25 @@ export default grammar({
        trailing `₊` into the close token. */
     norm_lit: $ => seq($._norm_open, $._term, $._norm_close),
 
+    /* `|x|` — absolute value (Mathlib's `atomic("|" noWs) term noWs
+       "|"`). The bars hug the term, which is what tells it apart from
+       the `|` of an alternative, so the scanner emits both bars. */
+    abs: $ => seq($._abs_open, field('term', $._term), $._abs_close),
+
     /* `⟪x, y⟫` — double-angle-bracket constructor (inner products,
        spans, pairings). Distinct open/close brackets, so safe. */
     dbl_angle_lit: $ => seq('⟪', sep0($._term, ','), '⟫'),
 
     /* `*` is valid as a simp-set element (`simp [*, foo]`). */
-    list_lit: $ => seq('[', sep0(choice($._term, $.star), ','), ']'),
+    list_lit: $ => seq('[', sep0(choice($._term, $.star, $.lemma_modifier), ','), ']'),
+
+    /* `grind [= foo, => bar, → baz, . qux]` — a `grind` modifier
+       before a lemma. (`← foo`, `-foo`, `!foo` already read as prefix
+       operators.) */
+    lemma_modifier: $ => seq(
+      field('modifier', choice('=', '=>', '⇒', '→', '->', '⇐', '<=', '.')),
+      field('term', $._term),
+    ),
     star: _ => '*',
 
     /* `[a : b]` or `[a : b : step]` — range/subarray slice. */
@@ -1240,6 +1294,15 @@ export default grammar({
       optional(field('stop', $._term)),
       optional(seq(':', field('step', $._term))),
       ']',
+    ),
+
+    /* `5#w` / `0#(w + 1)` — `BitVec` literal: value, then width. One
+       token (or a token and a parenthesized width): a separate `#`
+       would lose to a following `#name` command token after a
+       complete declaration body. */
+    bitvec_lit: $ => choice(
+      token(/[0-9](_?[0-9])*#[A-Za-z0-9_'α-ωΑ-Ω₀-₉]+/),
+      seq(token(/[0-9](_?[0-9])*#/), token.immediate('('), field('width', $._term), ')'),
     ),
 
     /* `#[a, b, c]` — array literal. */
@@ -1270,23 +1333,39 @@ export default grammar({
       '}',
     ),
 
-    /* `{ x : T | predicate }` or `{ x | predicate }` — set-builder. */
+    /* `{ x : T | predicate }`, `{ x | predicate }`, or with a binder
+       predicate `{ x ∈ s | predicate }` — set-builder. The binder is
+       parsed as a term, which covers the predicate form and shares a
+       prefix with `implicit_binder` below. */
     set_builder: $ => seq(
       '{',
-      field('binder', $._binder_ident),
+      field('binder', $._term),
       optional($._type_spec),
       '|',
       field('pred', $._term),
       '}',
     ),
 
-    /* `{ x : T // predicate }` — subtype notation. */
+    /* `{ x : T // predicate }` / `{ x // predicate }` — subtype. */
     subtype_lit: $ => seq(
       '{',
-      field('binder', $._binder_ident),
-      $._type_spec,
+      field('binder', $._term),
+      optional($._type_spec),
       '//',
       field('pred', $._term),
+      '}',
+    ),
+
+    /* `{a b : α} → β` — the domain of a dependent arrow with implicit
+       arguments, the brace counterpart of `(a : α) → β` (a type-
+       ascribed `paren`). Accepted as a term anywhere; the names are a
+       term (`a b` reads as an application). Visible under its own name
+       and aliased where used: aliasing a hidden rule in place spreads
+       its fields onto the parent and costs ~4k states. */
+    implicit_binder_term: $ => seq(
+      '{',
+      field('name', $._term),
+      $._type_spec,
       '}',
     ),
     /* `name := value`, `name binders := value`, or `name {a b} :=
@@ -1318,7 +1397,19 @@ export default grammar({
        binary-op states from forking through every lead alternative. */
     app: $ => prec.left(PREC.app, seq(
       field('fn', $._op_term),
-      field('arg', choice($._term_atom, $._lead_term)),
+      field('arg', choice($._term_atom, $._lead_term,
+        alias($.prefix_arg, $.unary_op))),
+    )),
+
+    /* `f ↑x`, `.up !b`, `f ¬p` — the max-precedence prefix operators
+       can start an argument. The operand is an atom with its
+       projections and subscripts (`!x.down`, `↑xs[i]`), but not an
+       application: `f ↑x y` passes `↑x` and `y` separately. `-x` is
+       excluded — `f -x` is subtraction. Aliased to `unary_op` where
+       used. */
+    prefix_arg: $ => prec(PREC.app + 5, seq(
+      field('op', choice('↑', '⇑', '↥', '¬', '!', '~~~')),
+      field('rhs', $._op_term),
     )),
 
     proj: $ => prec.left(PREC.proj, seq(
@@ -1334,8 +1425,31 @@ export default grammar({
     universe_app: $ => prec.left(PREC.proj, seq(
       field('term', $._op_term),
       token.immediate('.{'),
-      sep1(field('level', choice($.identifier, $.num_lit)), ','),
+      sep1(field('level', $._level), ','),
       '}',
+    )),
+
+    /* Universe level expressions: `u`, `0`, `_`, `u+1`,
+       `max u v`, `imax u v`, parenthesized levels. */
+    _level: $ => choice(
+      $._level_atom,
+      $.level_max,
+      $.level_succ,
+    ),
+    _level_atom: $ => choice(
+      $.identifier,
+      $.num_lit,
+      $.hole,
+      seq('(', $._level, ')'),
+    ),
+    level_max: $ => prec.left(seq(
+      field('op', choice('max', 'imax')),
+      repeat1(field('arg', $._level_atom)),
+    )),
+    level_succ: $ => prec.left(1, seq(
+      field('level', $._level),
+      '+',
+      field('offset', $.num_lit),
     )),
 
     /* Mathlib-style postfix operators: `Aᵒᵖ` (opposite), `Aᵐᵒᵖ` (mul
@@ -1398,8 +1512,32 @@ export default grammar({
 
     /* ----- operators ---------------------------------------------------- */
 
+    /* Range notation, also used for slices (`xs[lo...hi]`): `a...b`,
+       `a...<b`, `a...=b`, and the `a<...` variants, with `*` for an
+       unbounded end (`*...<b`, `a...*`, `*...*`). Binds tighter than
+       comparisons (`a ∈ lo...<hi`) and looser than arithmetic
+       (`i...n+1`). */
+    range: $ => choice(
+      prec.left(PREC.range, seq(
+        field('lower', $._op_term),
+        field('op', choice('...', '...<', '...=', '<...', '<...<', '<...=')),
+        field('upper', $._op_term),
+      )),
+      prec.left(PREC.range, seq(
+        field('op', choice('*...', '*...<', '*...=')),
+        field('upper', $._op_term),
+      )),
+      prec.left(PREC.range, seq(
+        field('lower', $._op_term),
+        field('op', choice('...*', '<...*')),
+      )),
+      field('op', '*...*'),
+    ),
+
     unary_op: $ => prec(PREC.prefix, seq(
       field('op', choice('-', '¬', '!', '←', '<-', '#',
+        /* Bitwise complement. */
+        '~~~',
         /* Coercion prefixes. */
         '↥', '↑', '↓', '⇑',
         /* Heyting negation, co-Heyting boundary (Mathlib). */
@@ -1407,6 +1545,14 @@ export default grammar({
         /* Lean's "borrow ref" prefix on argument types. */
         '@&')),
       field('rhs', $._op_term),
+    )),
+    /* `¬∃ x, p x` / `¬∀ x, p x` — `¬` takes its operand at precedence
+       40, so a binder term needs no parentheses. A lead term, like the
+       binder it wraps: as an operand tier it costs ~5k states. Aliased
+       to `unary_op` where used. */
+    not_binder: $ => prec(PREC.prefix, seq(
+      field('op', '¬'),
+      field('rhs', choice($.forall, $.exists)),
     )),
 
     binary_op: $ => choice(
@@ -1441,6 +1587,12 @@ export default grammar({
         /* Lattice-sup RHS often holds a big-op or `if`. */
         field('rhs', $._term),
       )),
+      /* `a ^^ b` — boolean xor (`infixl:33`). */
+      prec.left(PREC.xor, seq(
+        field('lhs', $._op_term),
+        field('op', '^^'),
+        field('rhs', $._op_term),
+      )),
       prec.left(PREC.and, seq(
         field('lhs', $._op_term),
         field('op', choice('∧', '&&', '⊓', '⊼')),  /* ⊼ = nand */
@@ -1464,6 +1616,7 @@ export default grammar({
           '⊨', '⇒',  /* entailment / relation-implication (Relator) */
           '≺', '≼',  /* strict and non-strict order relations */
           '⊣',       /* adjunction (`F ⊣ G`) */
+          '=/=',     /* "not definitionally equal", in `grind_pattern` constraints */
         )),
         /* `a = fun x => …` and `a ≤ if p then x else y` are common
            enough that comparison RHS must allow lead terms. */
@@ -1554,11 +1707,32 @@ export default grammar({
       prec.left(PREC.append, seq(
         field('lhs', $._op_term),
         field('op', choice(
-          '>>', '<<', '>>>', '<<<',
+          '>>', '<<',
           '>>=', '=<<',
-          '<$>', '<*>', '<|>', '<&>', '<&&>', '<||>',
-          '&&&', '|||', '^^^',
+          '<$>', '<*>', '<|>', '<&>', '<&&>', '<||>', '*>', '<*',
         )),
+        field('rhs', $._op_term),
+      )),
+      /* Bitwise operators, ordered as in Lean: `|||` < `^^^` < `&&&`
+         < `+` < `*` < `<<<`/`>>>` < `^`. */
+      prec.left(PREC.bor, seq(
+        field('lhs', $._op_term),
+        field('op', '|||'),
+        field('rhs', $._op_term),
+      )),
+      prec.left(PREC.bxor, seq(
+        field('lhs', $._op_term),
+        field('op', '^^^'),
+        field('rhs', $._op_term),
+      )),
+      prec.left(PREC.band, seq(
+        field('lhs', $._op_term),
+        field('op', '&&&'),
+        field('rhs', $._op_term),
+      )),
+      prec.left(PREC.shift, seq(
+        field('lhs', $._op_term),
+        field('op', choice('<<<', '>>>')),
         field('rhs', $._op_term),
       )),
     ),
@@ -1581,8 +1755,8 @@ export default grammar({
     )),
 
     /* `∀ x, body`, `∀ x : T, body`, `∀ x ∈ s, body` (sugar) — and
-       Mathlib's `∀ b ≠ ⊥, body` / `∀ c ⊆ S, body` predicate-tail
-       sugar. */
+       the binder predicates `∀ k < n, body`, `∀ b ≠ ⊥, body`,
+       `∀ c ⊆ S, body`. */
     forall: $ => prec.right(seq(
       /* `Π` is a deprecated Mathlib synonym for `∀` for product types. */
       choice('∀', 'forall', 'Π'),
@@ -1590,7 +1764,7 @@ export default grammar({
       optional(choice(
         $._type_spec,
         seq(
-          field('rel', choice('∈', '∉', '≠', '⊆', '⊂')),
+          field('rel', choice('∈', '∉', '≠', '⊆', '⊂', '<', '≤', '>', '≥')),
           field('bound', $._op_term),
         ),
       )),
@@ -1599,12 +1773,12 @@ export default grammar({
     )),
 
     exists: $ => prec.right(seq(
-      choice('∃', 'exists'),
+      choice('∃', '∃!', 'exists'),
       $._binders,
       optional(choice(
         $._type_spec,
         seq(
-          field('rel', choice('∈', '∉', '≠', '⊆', '⊂')),
+          field('rel', choice('∈', '∉', '≠', '⊆', '⊂', '<', '≤', '>', '≥')),
           field('bound', $._op_term),
         ),
       )),
@@ -1715,8 +1889,9 @@ export default grammar({
        multi-GB memory. Same for allowing `block_assign` in the
        branches. Do-block `if … then` without `else` therefore
        still parses with an error node. */
+    /* `bif c then t else e` is the `Bool`-condition variant. */
     if_then_else: $ => prec.right(seq(
-      'if',
+      choice('if', 'bif'),
       optional(seq(field('hyp', $._binder_ident), ':')),
       field('cond', $._term),
       'then',
@@ -1969,7 +2144,11 @@ export default grammar({
 
     match: $ => prec.right(seq(
       'match',
-      sep1(field('scrutinee', $._term), ','),
+      /* `match h : e with` names the equation `h : e = pat`. */
+      sep1(seq(
+        optional(seq(field('hyp', $.identifier), ':')),
+        field('scrutinee', $._term),
+      ), ','),
       'with',
       repeat1($.match_alt),
     )),

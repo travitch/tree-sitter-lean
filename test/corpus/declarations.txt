@@ -618,3 +618,99 @@ termination_by?
       name: (identifier)
       body: (identifier)
       (termination_by))))
+
+==============
+Grind attribute and lemma modifiers
+==============
+
+@[grind .] theorem t : p := foo
+@[grind =>, simp] theorem u : p := foo
+example := by grind [= foo, => bar, ← baz]
+
+---
+
+(module
+  (declaration
+    (attributes
+      name: (identifier))
+    (theorem
+      name: (identifier)
+      type: (identifier)
+      body: (identifier)))
+  (declaration
+    (attributes
+      name: (identifier)
+      name: (identifier))
+    (theorem
+      name: (identifier)
+      type: (identifier)
+      body: (identifier)))
+  (declaration
+    (example
+      body: (by
+        (tactic
+          name: (identifier)
+          (list_lit
+            (lemma_modifier
+              term: (identifier))
+            (lemma_modifier
+              term: (identifier))
+            (unary_op
+              rhs: (identifier))))))))
+
+==============
+Grind patterns with several terms and constraints
+==============
+
+grind_pattern foo => xs ~ ys, a ∈ xs where
+  guard a ≤ b
+  xs =/= []
+scoped grind_pattern bar => f x
+
+---
+
+(module
+  (grind_pattern_cmd
+    name: (identifier)
+    pattern: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))
+    pattern: (binary_op
+      lhs: (identifier)
+      rhs: (identifier))
+    constraint: (binary_op
+      lhs: (app
+        fn: (identifier)
+        arg: (identifier))
+      rhs: (identifier))
+    constraint: (binary_op
+      lhs: (identifier)
+      rhs: (list_lit)))
+  (grind_pattern_cmd
+    name: (identifier)
+    pattern: (app
+      fn: (identifier)
+      arg: (identifier))))
+
+==============
+Structure field defaults without a type
+==============
+
+structure S extends T where
+  x := 1
+  y : Nat := 2
+
+---
+
+(module
+  (declaration
+    (structure
+      name: (identifier)
+      (identifier)
+      (field
+        name: (identifier)
+        default: (num_lit))
+      (field
+        name: (identifier)
+        type: (identifier)
+        default: (num_lit)))))

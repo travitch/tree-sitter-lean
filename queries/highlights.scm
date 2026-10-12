@@ -17,6 +17,7 @@
 ; ---------- literals ------------------------------------------------------
 
 (num_lit)             @number
+(bitvec_lit)          @number
 (scientific_lit)      @number.float
 (char_lit)            @character
 (str_lit)             @string
@@ -209,6 +210,7 @@
 
 [
   "if"
+  "bif"
   "then"
   "else"
 ] @keyword.conditional
@@ -228,7 +230,11 @@
   "∀"
   "exists"
   "∃"
+  "∃!"
 ] @keyword.operator
+
+; Universe level operators (`Foo.{max u v}`).
+(level_max op: _ @keyword.operator)
 
 ; ---------- operators -----------------------------------------------------
 
@@ -246,9 +252,13 @@
   ">>" "<<" ">>>" "<<<"
   ">>=" "=<<"
   "<$>" "<*>" "<|>" "<&>"
-  "&&&" "|||" "^^^"
+  "&&&" "|||" "^^^" "~~~" "^^"
+  "*>" "<*" "=/="
   "←" "<-"
 ] @operator
+
+(range op: _ @operator)
+(lemma_modifier modifier: _ @operator)
 
 ; ---------- punctuation ---------------------------------------------------
 
